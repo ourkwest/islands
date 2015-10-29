@@ -2,51 +2,69 @@ package uk.me.westmacott.islands;
 
 import java.awt.*;
 import java.util.LinkedList;
+import java.util.Random;
+
+import static uk.me.westmacott.islands.Data.lerp;
+import static uk.me.westmacott.islands.Data.serp;
 
 public class Colors {
     
 
-    public static Color lerp(Color a, Color b, double proportion) {
-        
-        double inverse = 1.0 - proportion;
-        
-        int red = (int) (a.getRed() * inverse + b.getRed() * proportion);
-        int grn = (int) (a.getGreen() * inverse + b.getGreen() * proportion);
-        int blu = (int) (a.getBlue() * inverse + b.getBlue() * proportion);
-        
-        return new Color(red, grn, blu);
-    }
-
     public static void main(String[] args) {
 
-        System.out.println(ColorStops
-                .startAt(Color.BLACK)
-                .step(10, Color.WHITE)
-                .step(10, Color.RED)
-                .get(0.6, 0.8, 1.0));
-
-        System.out.println(ColorStops
-                .startAt(Color.BLACK)
-                .step(10, Color.WHITE)
-                .step(11, Color.RED)
-                .get(0.6, 0.8, 1.0));
+        System.out.println(Math.cos(0.0 * Math.PI));
+        System.out.println(Math.cos(0.5 * Math.PI));
+        System.out.println(Math.cos(1.0 * Math.PI));
+        System.out.println("----------");
+        System.out.println(lerp(Color.BLACK, Color.WHITE, 0.0));
+        System.out.println(serp(Color.BLACK, Color.WHITE, 0.0));
+        System.out.println("----------");
+        System.out.println(lerp(Color.BLACK, Color.WHITE, 0.25));
+        System.out.println(serp(Color.BLACK, Color.WHITE, 0.25));
+        System.out.println("----------");
+        System.out.println(lerp(Color.BLACK, Color.WHITE, 0.5));
+        System.out.println(serp(Color.BLACK, Color.WHITE, 0.5));
+        System.out.println("----------");
+        System.out.println(lerp(Color.BLACK, Color.WHITE, 0.75));
+        System.out.println(serp(Color.BLACK, Color.WHITE, 0.75));
+        System.out.println("----------");
+        System.out.println(lerp(Color.BLACK, Color.WHITE, 1.0));
+        System.out.println(serp(Color.BLACK, Color.WHITE, 1.0));
 
     }
 
-    public static class ColorStops {
+    public interface ColorStops {
+
+        default Color get(Random random) {
+            return get(random.nextDouble());
+        }
+
+        default Color get(double distance) {
+            return get(0.0, distance, 1.0);
+        }
+
+        Color get(double start, double distance, double end);
+
+        static SimpleColorStops startingAt(Color start) {
+            return new SimpleColorStops(start);
+        }
+
+        static ColorStopChain chain(ColorStops start, double weighting) {
+            return new ColorStopChain(start, weighting);
+        }
+
+    }
+
+    public static class SimpleColorStops implements ColorStops {
 
         private final LinkedList<Node> colors = new LinkedList<>();
         private double total;
 
-        public static ColorStops startAt(Color start) {
-            return new ColorStops(start);
+        private SimpleColorStops(Color start) {
+            stepOf(0.0, start);
         }
 
-        private ColorStops(Color start) {
-            step(0.0, start);
-        }
-
-        public ColorStops step(double distance, Color color) {
+        public SimpleColorStops stepOf(double distance, Color color) {
             colors.add(new Node(distance, color));
             total += distance;
             return this;
@@ -54,10 +72,10 @@ public class Colors {
 
         public Color get(double start, double distance, double end) {
             double index = total * (distance - start) / (end - start);
-            return get(index);
+            return getAbsolute(index);
         }
 
-        public Color get(double distance) {
+        private Color getAbsolute(double distance) {
             Node last = colors.getFirst();
             for (Node node : colors) {
                 if (distance < node.distance) {
@@ -67,10 +85,6 @@ public class Colors {
                 last = node;
             }
             return colors.getLast().color;
-        }
-
-        public double total() {
-            return total;
         }
 
         private static class Node {
@@ -84,5 +98,48 @@ public class Colors {
         }
 
     }
-    
+
+    public static class ColorStopChain implements ColorStops {
+
+        private final LinkedList<Node> colorStops = new LinkedList<>();
+        private double total;
+
+        private ColorStopChain(ColorStops start, double weighting) {
+            andThen(start, weighting);
+        }
+
+        public ColorStopChain andThen(ColorStops color, double weighting) {
+            colorStops.add(new Node(weighting, color));
+            total += weighting;
+            return this;
+        }
+
+        public Color get(double start, double distance, double end) {
+            double index = total * (distance - start) / (end - start);
+            return getAbsolute(index);
+        }
+
+        private Color getAbsolute(double distance) {
+            Node last = colorStops.getFirst();
+            for (Node node : colorStops) {
+                if (distance < node.weight) {
+                    return node.colorStops.get(0.0, distance, node.weight);
+                }
+                distance -= node.weight;
+                last = node;
+            }
+            return last.colorStops.get(0.0, distance, last.weight);
+        }
+
+        private static class Node {
+            final double weight;
+            final ColorStops colorStops;
+
+            private Node(double weight, ColorStops colorStops) {
+                this.weight = weight;
+                this.colorStops = colorStops;
+            }
+        }
+
+    }
 }
