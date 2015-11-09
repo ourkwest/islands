@@ -3,13 +3,12 @@ package uk.me.westmacott.islands;
 import uk.me.westmacott.islands.Colors.ColorStops;
 
 import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.util.*;
 import java.util.List;
 
-import static uk.me.westmacott.islands.Data.close;
-import static uk.me.westmacott.islands.Data.inBounds;
-import static uk.me.westmacott.islands.Data.lerp;
+import static uk.me.westmacott.islands.Data.*;
 
 public class HeightMap {
 
@@ -109,10 +108,15 @@ public class HeightMap {
         }
         System.out.println();
 
-        applyLighting(imageData, lighting, normalised);
+        renderLighting(imageData, lighting, normalised);
 
         cullHuts(huts);
-        applyHuts(imageData, huts, random);
+
+        BufferedImage image = Data.render(imageData);
+
+        renderPaths(image, huts, random);
+
+        renderHuts(image, huts, random);
 
                 // waves
         //   seeded at contour line stage
@@ -135,10 +139,158 @@ public class HeightMap {
 //            }
 //        }
         int n = Data.readAndWrite("HeightMap", () -> 0, x -> x+1);
-        Data.spitImage(imageData, "HeightMap_" + n);
+        Data.spitImage(image, "HeightMap_" + n);
 
     }
 
+    private void renderPaths(BufferedImage image, List<Point> huts, Random random) {
+
+        Graphics2D graphics = image.createGraphics();
+        int defaultStepSize = 10;
+        int pathLimit = Math.max(image.getHeight(), image.getWidth()) / 3;
+
+        LinkedList<LinkedList<DoublePoint>> paths = new LinkedList<>();
+
+        for (int i = 0; i < huts.size(); i++) {
+            for (int j = 0; j < i; j++) {
+
+                Point hutA = huts.get(i);
+                Point hutB = huts.get(j);
+
+                double distance = distance(hutA.x, hutA.y, hutB.x, hutB.y);
+                if (distance > pathLimit) {
+                    continue;
+                }
+                int steps = clamp(2, (int) distance / defaultStepSize, 100);
+                double xStep = (double)(hutB.x - hutA.x) / (double)steps;
+                double yStep = (double)(hutB.y - hutA.y) / (double)steps;
+
+                LinkedList<DoublePoint> path = new LinkedList<>();
+                double x = hutA.x;
+                double y = hutA.y;
+                for (int k = 0; k <= steps; k++) {
+                    path.add(new DoublePoint((int)x, (int)y));
+                    x += xStep;
+                    y += yStep;
+                }
+                paths.add(path);
+            }
+        }
+
+//        for (Point hutA : huts) {
+//            for (Point hutB : huts) {
+//                if (hutA != hutB) {
+
+//                    LinkedList<DoublePoint> path = new LinkedList<>();
+//
+//                    double distance = distance(hutA.x, hutA.y, hutB.x, hutB.y);
+//                    int steps = clamp(2, (int) distance / defaultStepSize, 100);
+//                    double xStep = (double)(hutB.x - hutA.x) / (double)steps;
+//                    double yStep = (double)(hutB.y - hutA.y) / (double)steps;
+//
+//                    double x = hutA.x;
+//                    double y = hutA.y;
+//                    for (int i = 0; i < steps; i++) {
+//
+//                        path.add(new DoublePoint((int)x, (int)y));
+//
+////                        graphics.setColor(Color.BLUE);
+////                        graphics.drawLine((int) x, (int) y, (int) (x + xStep), (int) (y + yStep));
+//                        x += xStep;
+//                        y += yStep;
+//                    }
+//
+////                    x = hutA.x;
+////                    y = hutA.y;
+////                    for (int i = 1; i < steps; i++) {
+////                        x += xStep;
+////                        y += yStep;
+////                        graphics.setColor(Color.RED);
+////                        graphics.drawLine((int) x, (int) y, (int) x, (int) y);
+////                    }
+//
+//                    paths.add(path);
+//                }
+//            }
+//        }
+
+        // TODO: iterate!
+        // push all path points towards nearby path points
+        // push all path points towards their neighbours
+        // push all path points towards the height of their neighbours
+        // push all path points above sea level
+
+        List<Triple<DoublePoint>> pathNodes = new ArrayList<>();
+        for (LinkedList<DoublePoint> path : paths) {
+            for (Triple<DoublePoint> triple : triplewise(path)) {
+                pathNodes.add(triple);
+            }
+        }
+
+        int pathIterations = 100;
+        for (int i = 0; i < pathIterations; i++) {
+
+            Collections.shuffle(pathNodes, random); // minimise ordering-based artifacts?
+
+            // Attract everyone
+            for (Triple<DoublePoint> nodeA : pathNodes) {
+                for (Triple<DoublePoint> nodeB : pathNodes) {
+                    if (nodeA != nodeB) {
+                        double d = distance(nodeA.second, nodeB.second);
+                        double factor = 10.0 * Math.max(1.0, Math.pow(d / 10.0, 4.0));
+                        double xStep = (nodeA.second.x - nodeB.second.x) / factor;
+                        double yStep = (nodeA.second.y - nodeB.second.y) / factor;
+                        nodeA.second.x -= xStep;
+                        nodeA.second.y -= yStep;
+                        nodeB.second.x += xStep;
+                        nodeB.second.y += yStep;
+                    }
+                }
+            }
+
+            // Attract neighbours
+            for (Triple<DoublePoint> node : pathNodes) {
+                node.second.x += ((node.third.x - node.second.x) / 10);
+                node.second.y += ((node.third.y - node.second.y) / 10);
+                node.second.x += ((node.first.x - node.second.x) / 10);
+                node.second.y += ((node.first.y - node.second.y) / 10);
+            }
+
+            for (List<DoublePoint> path : paths) {
+                for (DoublePoint point : path) {
+                    graphics.setColor(Color.PINK);
+                    graphics.drawLine(
+                            (int) point.x, (int) point.y,
+                            (int) point.x, (int) point.y);
+                }
+            }
+
+            System.out.print("\r " + i);
+        }
+        System.out.println();
+
+
+        for (List<DoublePoint> path : paths) {
+            for (Pair<DoublePoint> pair : pairwise(path)) {
+
+                graphics.setColor(Color.BLUE);
+                graphics.drawLine(
+                        (int) pair.first.x, (int) pair.first.y,
+                        (int) pair.second.x, (int) pair.second.y);
+
+                graphics.setColor(Color.RED);
+                graphics.drawLine(
+                        (int) pair.first.x, (int) pair.first.y,
+                        (int) pair.first.x, (int) pair.first.y);
+
+            }
+        }
+
+    }
+
+    // TODO: rather than culling them, we should spread them
+    // culling like this biases against random clustering
+    // we should also make some huts a bit bigger depending on proximity of other huts?
     private void cullHuts(List<Point> huts) {
         for (Point hut : huts) {
             for (Point other : huts) {
@@ -157,25 +309,32 @@ public class HeightMap {
     }
 
 
-    private void applyHuts(int[][] imageData, List<Point> huts, Random random) {
+    private void renderHuts(BufferedImage image, List<Point> huts, Random random) {
+        Graphics2D graphics = image.createGraphics();
         double lightingAngle = 7.0 * (Constants.TAU / 8.0);
         for (Point hut : huts) {
+
+            double size = 6.0 + random.nextDouble() * 4.0;
             for (double theta = 0; theta < Constants.TAU; theta += 0.02) {
 
-                double hMax = 10.0 + random.nextDouble() * 2.0;
+                double sizeBit = size + random.nextDouble() * 2.0;
                 double ct = Math.cos(theta);
                 double st = Math.sin(theta);
                 double sl = Math.sin(theta + lightingAngle);
                 Color color = sticks.get(random);
                 color = lerp(Color.BLACK, color, (1.5 + sl)/2.5);
 
-                for (double h = 0.0; h < hMax; h += 0.5) {
-                    int x = (int) (hut.x + st * h);
-                    int y = (int) (hut.y + ct * h);
-                    if (inBounds(0, x, imageData.length) && inBounds(0, y, imageData[0].length)) {
-                        imageData[x][y] = color.getRGB();
-                    }
-                }
+                graphics.setColor(color);
+                graphics.drawLine(hut.x, hut.y, (int)(hut.x + st * sizeBit), (int)(hut.y + ct * sizeBit));
+
+//                for (double h = 0.0; h < hMax; h += 0.5) {
+//                    int x = (int) (hut.x + st * h);
+//                    int y = (int) (hut.y + ct * h);
+//
+//                    if (inBounds(0, x, image.length) && inBounds(0, y, imageData[0].length)) {
+//                        imageData[x][y] = color.getRGB();
+//                    }
+//                }
             }
         }
     }
@@ -188,7 +347,7 @@ public class HeightMap {
         }
     }
 
-    private void applyLighting(int[][] imageData, double[][] lighting, double[][] heightData) {
+    private void renderLighting(int[][] imageData, double[][] lighting, double[][] heightData) {
         double min = 0;
         double max = 0;
         for (int x = 0; x < lighting.length; x++) {

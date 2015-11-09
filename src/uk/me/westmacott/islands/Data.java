@@ -6,6 +6,7 @@ import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Iterator;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -46,18 +47,26 @@ public class Data {
 
 
     public static void spitImage(int[][] data, Object name) throws IOException {
-        int width = data.length;
-        int height = data[0].length;
+        spitImage(render(data), name);
+    }
+
+    public static void spitImage(BufferedImage image, Object name) throws IOException {
+        ImageIO.write(image, "png", new File("./" + name + ".png"));
+        System.out.println("Wrote: " + name);
+    }
+
+    public static BufferedImage render(int[][] imageData) {
+        int width = imageData.length;
+        int height = imageData[0].length;
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
 //                if (data[x][y] != -1) {
-                    image.setRGB(x, y, data[x][y] | 0xFF000000);
+                    image.setRGB(x, y, imageData[x][y] | 0xFF000000);
 //                }
             }
         }
-        ImageIO.write(image, "png", new File("./" + name + ".png"));
-        System.out.println("Wrote: " + name);
+        return image;
     }
 
 
@@ -75,6 +84,16 @@ public class Data {
 
     public static boolean close(double xDiff, double yDiff, double distance) {
         return (xDiff * xDiff) + (yDiff * yDiff) < (distance * distance);
+    }
+
+    public static double distance(DoublePoint a, DoublePoint b) {
+        return distance(a.x, a.y, b.x, b.y);
+    }
+
+    public static double distance(double x1, double y1, double x2, double y2) {
+        double xDiff = x1 - x2;
+        double yDiff = y1 - y2;
+        return Math.sqrt((xDiff * xDiff) + (yDiff * yDiff));
     }
 
     private static Path path = Paths.get(".", "data");
@@ -163,6 +182,91 @@ public class Data {
             result[i] = newArray(initialValue, size1, size2);
         }
         return result;
+    }
+
+
+    public static class Pair<T> {
+        public final T first;
+        public final T second;
+        public Pair(T first, T second) {
+            this.first = first;
+            this.second = second;
+        }
+    }
+
+    public static class Triple<T> {
+        public final T first;
+        public final T second;
+        public final T third;
+        public Triple(T first, T second, T third) {
+            this.first = first;
+            this.second = second;
+            this.third = third;
+        }
+    }
+
+    public static <T> Iterable<Pair<T>> pairwise(Iterable<T> iterable) {
+        Iterator<T> it = iterable.iterator();
+        return () -> new Iterator<Pair<T>>() {
+
+            T current;
+
+            private void init() {
+                if (current == null && it.hasNext()) {
+                    current = it.next();
+                }
+            }
+
+            @Override
+            public boolean hasNext() {
+                init();
+                return it.hasNext();
+            }
+
+            @Override
+            public Pair<T> next() {
+                init();
+                T next = it.next();
+                Pair<T> result = new Pair<>(current, next);
+                current = next;
+                return result;
+            }
+        };
+    }
+
+    public static <T> Iterable<Triple<T>> triplewise(Iterable<T> iterable) {
+        Iterator<T> it = iterable.iterator();
+        return () -> new Iterator<Triple<T>>() {
+
+            T last;
+            T current;
+
+            private void init() {
+                if (current == null && it.hasNext()) {
+                    current = it.next();
+                }
+                if (last == null && it.hasNext()) {
+                    last = current;
+                    current = it.next();
+                }
+            }
+
+            @Override
+            public boolean hasNext() {
+                init();
+                return it.hasNext();
+            }
+
+            @Override
+            public Triple<T> next() {
+                init();
+                T next = it.next();
+                Triple<T> result = new Triple<>(last, current, next);
+                last = current;
+                current = next;
+                return result;
+            }
+        };
     }
 
 //    public static void iterray(Object array, Function transformer) {
