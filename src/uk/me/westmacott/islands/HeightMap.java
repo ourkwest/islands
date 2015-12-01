@@ -52,40 +52,17 @@ public class HeightMap {
 
         final int[][] imageData = new int[width][height];
 
-//        final double[][] raw = new double[width][height];
-//        final double[][] normalised = new double[width][height];
-//        double min = 256.0;
-//        double max = -256.0;
-//        for (int x = 0; x < raw.length; x++) {
-//            for (int y = 0; y < raw[0].length; y++) {
-//                raw[x][y] = noise.noise(x * scale, y * scale);
-//                min = Math.min(min, raw[x][y]);
-//                max = Math.max(max, raw[x][y]);
-//            }
-//            if (x % 10 == 0) {
-//                System.out.print(".");
-//            }
-//        }
-//        System.out.println();
-//
-//        for (int x = 0; x < raw.length; x++) {
-//            for (int y = 0; y < raw[0].length; y++) {
-//                normalised[x][y] = (raw[x][y] - min) / (max - min);
-//            }
-//            if (x % 10 == 0) {
-//                System.out.print(".");
-//            }
-//        }
-//        System.out.println();
-
-        final double[][] normalised = noise.normalisedNoise(width, height, 1500);
+        final double[][] heightData = noise.normalisedNoise(width, height, 1500);
         final double[][] lighting = new double[width][height];
         final List<Point> huts = new LinkedList<>();
+
+        Normals normals = new Normals(heightData);
+        lightAmounts(normals, lighting);
 
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
 
-                imageData[x][y] = colorStops.get(0.0, normalised[x][y], 1.0).getRGB();//Color.WHITE.getRGB();
+                imageData[x][y] = colorStops.get(0.0, heightData[x][y], 1.0).getRGB();//Color.WHITE.getRGB();
 
 //                if (normalised[x][y] < 0.6) {
 //                    imageData[x][y] = sea.get(0, normalised[x][y], 0.6).getRGB();
@@ -94,11 +71,11 @@ public class HeightMap {
 //                    imageData[x][y] = land.get(0.6, normalised[x][y], 1.0).getRGB();
 //                }
 
-                contourLines(normalised, imageData, x, y);
+                contourLines(heightData, imageData, x, y);
 
-                lightAngles(normalised, lighting, x, y);
+//                lightAngles(heightData, lighting, x, y);
 
-                considerHut(normalised, x, y, random, huts);
+                considerHut(heightData, x, y, random, huts);
 
 //                lighting(normalised, imageData, x, y, landDepth);
             }
@@ -108,13 +85,13 @@ public class HeightMap {
         }
         System.out.println();
 
-        renderLighting(imageData, lighting, normalised);
+        renderLighting(imageData, lighting, heightData);
 
         cullHuts(huts);
 
         BufferedImage image = Data.render(imageData);
 
-        renderPaths(image, huts, random);
+        renderPaths(image, huts, random, heightData, normals);
 
         renderHuts(image, huts, random);
 
@@ -143,7 +120,8 @@ public class HeightMap {
 
     }
 
-    private void renderPaths(BufferedImage image, List<Point> huts, Random random) {
+    private void renderPaths(BufferedImage image, List<Point> huts, Random random,
+                             double[][] heightData, Normals normals) {
 
         Graphics2D graphics = image.createGraphics();
         int defaultStepSize = 10;
@@ -177,48 +155,13 @@ public class HeightMap {
             }
         }
 
-//        for (Point hutA : huts) {
-//            for (Point hutB : huts) {
-//                if (hutA != hutB) {
-
-//                    LinkedList<DoublePoint> path = new LinkedList<>();
-//
-//                    double distance = distance(hutA.x, hutA.y, hutB.x, hutB.y);
-//                    int steps = clamp(2, (int) distance / defaultStepSize, 100);
-//                    double xStep = (double)(hutB.x - hutA.x) / (double)steps;
-//                    double yStep = (double)(hutB.y - hutA.y) / (double)steps;
-//
-//                    double x = hutA.x;
-//                    double y = hutA.y;
-//                    for (int i = 0; i < steps; i++) {
-//
-//                        path.add(new DoublePoint((int)x, (int)y));
-//
-////                        graphics.setColor(Color.BLUE);
-////                        graphics.drawLine((int) x, (int) y, (int) (x + xStep), (int) (y + yStep));
-//                        x += xStep;
-//                        y += yStep;
-//                    }
-//
-////                    x = hutA.x;
-////                    y = hutA.y;
-////                    for (int i = 1; i < steps; i++) {
-////                        x += xStep;
-////                        y += yStep;
-////                        graphics.setColor(Color.RED);
-////                        graphics.drawLine((int) x, (int) y, (int) x, (int) y);
-////                    }
-//
-//                    paths.add(path);
-//                }
-//            }
-//        }
 
         // TODO: iterate!
         // push all path points towards nearby path points
         // push all path points towards their neighbours
         // push all path points towards the height of their neighbours
         // push all path points above sea level
+        // TODO: more of this: prevent path nodes being too close to their own neighbours? explicitly push away!
 
         List<Triple<DoublePoint>> pathNodes = new ArrayList<>();
         for (LinkedList<DoublePoint> path : paths) {
@@ -227,33 +170,53 @@ public class HeightMap {
             }
         }
 
-        int pathIterations = 100;
+        int pathIterations = 300;
         for (int i = 0; i < pathIterations; i++) {
 
             Collections.shuffle(pathNodes, random); // minimise ordering-based artifacts?
 
             // Attract everyone
-            for (Triple<DoublePoint> nodeA : pathNodes) {
-                for (Triple<DoublePoint> nodeB : pathNodes) {
-                    if (nodeA != nodeB) {
-                        double d = distance(nodeA.second, nodeB.second);
-                        double factor = 10.0 * Math.max(1.0, Math.pow(d / 10.0, 4.0));
-                        double xStep = (nodeA.second.x - nodeB.second.x) / factor;
-                        double yStep = (nodeA.second.y - nodeB.second.y) / factor;
-                        nodeA.second.x -= xStep;
-                        nodeA.second.y -= yStep;
-                        nodeB.second.x += xStep;
-                        nodeB.second.y += yStep;
-                    }
-                }
-            }
+//            for (Triple<DoublePoint> nodeA : pathNodes) {
+//                for (Triple<DoublePoint> nodeB : pathNodes) {
+//                    if (!nodeA.contains(nodeB.second)) {
+//                        double d = distance(nodeA.second, nodeB.second);
+//                        double factor = 10.0 * Math.max(1.0, Math.pow(d / 10.0, 4.0));
+//                        double xStep = (nodeA.second.x - nodeB.second.x) / factor;
+//                        double yStep = (nodeA.second.y - nodeB.second.y) / factor;
+//                        nodeA.second.x -= xStep;
+//                        nodeA.second.y -= yStep;
+//                        nodeB.second.x += xStep;
+//                        nodeB.second.y += yStep;
+//                    }
+//                }
+//            }
 
             // Attract neighbours
             for (Triple<DoublePoint> node : pathNodes) {
-                node.second.x += ((node.third.x - node.second.x) / 10);
-                node.second.y += ((node.third.y - node.second.y) / 10);
-                node.second.x += ((node.first.x - node.second.x) / 10);
-                node.second.y += ((node.first.y - node.second.y) / 10);
+                if (distance(node.third, node.second) > defaultStepSize) {
+                    node.second.x += ((node.third.x - node.second.x) / 10);
+                    node.second.y += ((node.third.y - node.second.y) / 10);
+                }
+                if (distance(node.first, node.second) > defaultStepSize) {
+                    node.second.x += ((node.first.x - node.second.x) / 10);
+                    node.second.y += ((node.first.y - node.second.y) / 10);
+                }
+            }
+
+            // Move towards height of neighbours
+            for (Triple<DoublePoint> node : pathNodes) {
+                double height1 = heightData[((int) node.first.x)][((int) node.first.y)];
+                double height2 = heightData[((int) node.second.x)][((int) node.second.y)];
+                double height3 = heightData[((int) node.third.x)][((int) node.third.y)];
+                double targetHeight = height1 + height3 / 2;
+                double amount = (targetHeight - height2) * 100.0;
+
+                node.second.x -= amount * normals.dx[((int) node.second.x)][((int) node.second.y)];
+                node.second.y -= amount * normals.dy[((int) node.second.x)][((int) node.second.y)];
+
+                node.second.x = Data.clamp(0, node.second.x, heightData.length - 1);
+                node.second.y = Data.clamp(0, node.second.y, heightData.length - 1);
+
             }
 
             for (List<DoublePoint> path : paths) {
@@ -384,43 +347,46 @@ public class HeightMap {
 //        System.out.println("Min / Max: " + min2 + " / " + max2);
     }
 
+    private static class Normals {
+
+        double[][] dx;
+        double[][] dy;
+
+        public Normals(double[][] heightData) {
+            dx = new double[heightData.length][heightData[0].length];
+            dy = new double[heightData.length][heightData[0].length];
+            for (int x1 = 0; x1 < heightData.length; x1++) {
+                for (int y1 = 0; y1 < heightData[0].length; y1++) {
+                    int x0 = Data.clamp(0, x1 - 1, heightData.length - 1);
+                    int x2 = Data.clamp(0, x1 + 1, heightData.length - 1);
+                    int y0 = Data.clamp(0, y1 - 1, heightData[0].length - 1);
+                    int y2 = Data.clamp(0, y1 + 1, heightData[0].length - 1);
+                    dx[x1][y1] = heightData[x0][y1] - heightData[x2][y1];
+                    dy[x1][y1] = heightData[x1][y0] - heightData[x1][y2];
+                }
+            }
+        }
+    }
+
+    private void lightAmounts(Normals normals, double[][] angles) {
+        for (int x = 0; x < angles.length; x++) {
+            for (int y = 0; y < angles[0].length; y++) {
+                angles[x][y] = normals.dx[x][y] - normals.dy[x][y];
+            }
+        }
+    }
+
     private void lightAngles(double[][] heightData, double[][] angles, int x, int y) {
 
-        int x1 = Data.clamp(0, x - 5, heightData.length - 1);
-        int y1 = Data.clamp(0, y + 5, heightData[0].length - 1);
-        int x2 = Data.clamp(0, x + 5, heightData.length - 1);
-        int y2 = Data.clamp(0, y - 5, heightData[0].length - 1);
+        int lightEvaluationDistance = 1;
+        int x1 = Data.clamp(0, x - lightEvaluationDistance, heightData.length - 1);
+        int y1 = Data.clamp(0, y + lightEvaluationDistance, heightData[0].length - 1);
+        int x2 = Data.clamp(0, x + lightEvaluationDistance, heightData.length - 1);
+        int y2 = Data.clamp(0, y - lightEvaluationDistance, heightData[0].length - 1);
 
         angles[x][y] = heightData[x1][y1] - heightData[x2][y2];
     }
 
-
-
-    private void lighting(double[][] heightData, int[][] imageData, int x, int y, double landDepth) {
-
-        int x1 = Data.clamp(0, x - 5, heightData.length - 1);
-        int y1 = Data.clamp(0, y + 5, heightData[0].length - 1);
-        int x2 = Data.clamp(0, x + 5, heightData.length - 1);
-        int y2 = Data.clamp(0, y - 5, heightData[0].length - 1);
-
-        double scale = 50.0;
-        double h1 = scale * heightData[x1][y1];
-        double h2 = scale * heightData[x2][y2];
-        float l = (float) Data.clamp(0.0, (0.5 + h1 - h2), 1.0);
-        Color lighting = new Color(l, l, l);
-        Color oldColor = new Color(imageData[x][y]);
-
-        double prop = heightData[x][y] > seaDepth ? 0.75 : 0.95;
-
-        imageData[x][y] = lerp(lighting, oldColor, prop).getRGB();
-
-//        double here = scale * heightData[x][y];
-//        double there = scale * heightData[Math.max(0, x - 1)][Math.max(0, y - 1)];
-//        float light = (float) Data.clamp(0.0, (0.5 + here - there), 1.0);
-//        Color lighting = new Color(light, light, light);
-//        Color oldColor = new Color(imageData[x][y]);
-//        imageData[x][y] = lerp(lighting, oldColor, 0.75).getRGB();
-    }
 
     private void contourLines(double[][] heightData, int[][] imageData, int x, int y) {
 

@@ -203,6 +203,10 @@ public class Data {
             this.second = second;
             this.third = third;
         }
+
+        public boolean contains(T item) {
+            return first == item || second == item || third ==item;
+        }
     }
 
     public static <T> Iterable<Pair<T>> pairwise(Iterable<T> iterable) {
